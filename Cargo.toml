@@ -1,0 +1,8 @@
+[package]
+name = "git_statusline"
+version = "0.1.0"
+authors = ["Kate Morrison <a9rkzz@gmail.com>"]
+
+[dependencies]
+git2 = "0.7.1"
+colored = "1.6.0"
