@@ -1,6 +1,6 @@
 [package]
 name = "git_statusline"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Addie Morrison <0xADD1E@gmail.com>"]
 description = "A simple, sweet, fast statusline fragment for git repos"
 readme = "README.md"

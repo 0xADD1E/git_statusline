@@ -3,7 +3,7 @@ extern crate colored;
 use colored::*;
 
 fn main() {
-    if let Ok(repo) = git2::Repository::open(".") {
+    if let Ok(repo) = git2::Repository::discover(".") {
         if repo.is_bare(){
             return
         }
@@ -43,21 +43,22 @@ fn state(repo: &git2::Repository) -> Result<String, git2::Error> {
 /// - Files modified (Yellow *)
 /// - Files deleted (Red -)
 /// - Files not yet tracked (Cyan +)
+/// - Files with merge conflicts (Red !)
 /// 
 /// All operations based on HEAD
 fn files(repo: &git2::Repository) -> Result<String, git2::Error> {
     let mut files = String::new();
     let mut opts = git2::StatusOptions::default();
     let opts = opts.include_untracked(true);
-    let (mut n_new, mut n_mod, mut n_del, mut n_untr) = (0, 0, 0, 0);
+    let (mut n_new, mut n_mod, mut n_del, mut n_untr, mut n_confl) = (0, 0, 0, 0, 0);
     for status in repo.statuses(Some(opts))?.iter() {
         let s = status.status();
         use git2::Status;
 
-        if s.intersects(Status::INDEX_NEW) {
+        if s.intersects(Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE) {
             n_new += 1;
         }
-        if s.intersects(Status::INDEX_MODIFIED | Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE | Status::WT_MODIFIED | Status::WT_TYPECHANGE | Status::WT_RENAMED | Status::CONFLICTED){
+        if s.intersects(Status::WT_MODIFIED | Status::WT_TYPECHANGE | Status::WT_RENAMED){
             n_mod += 1;
         }
         if s.intersects(Status::INDEX_DELETED | Status::WT_DELETED){
@@ -65,6 +66,9 @@ fn files(repo: &git2::Repository) -> Result<String, git2::Error> {
         }
         if s.intersects(Status::WT_NEW){
             n_untr += 1;
+        }
+        if s.intersects(Status::CONFLICTED){
+            n_confl += 1;
         }
     }
 
@@ -82,6 +86,9 @@ fn files(repo: &git2::Repository) -> Result<String, git2::Error> {
         }
         if n_untr > 0{
             files += &format!("{}{} ", "+".cyan().bold(), n_untr);
+        }
+        if n_confl > 0{
+            files += &format!("{}{} ", "!".red().bold(), n_confl);
         }
     }
     Ok(files)
