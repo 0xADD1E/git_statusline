@@ -1,13 +1,12 @@
 [package]
 name = "git_statusline"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Addie Morrison <0xADD1E@gmail.com>"]
 description = "A simple, sweet, fast statusline fragment for git repos"
 readme = "README.md"
 repository = "https://github.com/0xADD1E/git_statusline"
 keywords = ["git", "terminal", "statusline"]
 license = "MIT"
-maintenance = { status = "passively-maintained" }
 
 [dependencies]
 git2 = "0.7.1"

@@ -1,44 +1,10 @@
-extern crate git2;
 extern crate colored;
+extern crate git2;
 use colored::*;
 use std::io::{self, Write};
 
-enum Error {
-    Git2Error(git2::Error),
-    IoError(io::Error)
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::IoError(e)
-    }
-}
-
-impl From<git2::Error> for Error {
-    fn from(e: git2::Error) -> Self {
-        Error::Git2Error(e)
-    }
-}
-
 fn main() {
-    if let Ok(repo) = git2::Repository::discover(".") {
-        if repo.is_bare(){
-            return
-        }
-        let mut stdout = io::stdout();
-        if let Err(e) = state(&repo, &mut stdout){
-            match e {
-                Error::Git2Error(e) => write!(&mut io::stderr(), "Error: {}", e.message()).expect("Could not write to stderr"),
-                Error::IoError(e) => write!(&mut io::stderr(), "Error: {}", e).expect("Could not write to stderr"),
-            }
-        }
-        if let Err(e) = files(&repo, &mut stdout){
-            match e {
-                Error::Git2Error(e) => write!(&mut io::stderr(), "Error: {}", e.message()).expect("Could not write to stderr"),
-                Error::IoError(e) => write!(&mut io::stderr(), "Error: {}", e).expect("Could not write to stderr"),
-            }
-        }
-    }
+    statusline().unwrap();
 }
 /// Print state information about a repo
 /// Gives...
@@ -46,20 +12,23 @@ fn main() {
 /// - Ahead/Behind stats for remote tracking branches (if any)
 /// - Sexy Powerline-compatible symbols
 /// - Colours
-/// 
+///
 /// All operations based on HEAD
-fn state<W: Write>(repo: &git2::Repository, writer: &mut W) -> Result<(), Error> {
-    if let Some(name) = repo.head()?.shorthand() {
-        write!(writer, "on {} {} ", "".bright_purple().bold(), name.white().bold())?;
-    }
+fn state(repo: &git2::Repository) -> Result<(Option<String>, Option<(usize, usize)>), git2::Error> {
+    let name = match repo.head()?.shorthand() {
+        Some(name) => Some(String::from(name)),
+        None => None,
+    };
 
     let branch = git2::Branch::wrap(repo.head()?);
-    if let (Some(local_oid), Some(remote_oid)) = (repo.head()?.target_peel(), branch.upstream()?.get().target_peel()){
-        if let Ok((ahead, behind)) = repo.graph_ahead_behind(local_oid, remote_oid) {
-            write!(writer, " ↑{} ↓{}", ahead, behind)?;
-        }
-    }
-    Ok(())
+    let graph = match (
+        repo.head()?.target_peel(),
+        branch.upstream()?.get().target_peel(),
+    ) {
+        (Some(local), Some(remote)) => Some(repo.graph_ahead_behind(local, remote)?),
+        _ => None,
+    };
+    Ok((name, graph))
 }
 /// Print file statuses for a repo
 /// Gives...
@@ -68,9 +37,9 @@ fn state<W: Write>(repo: &git2::Repository, writer: &mut W) -> Result<(), Error>
 /// - Files deleted (Red -)
 /// - Files not yet tracked (Cyan +)
 /// - Files with merge conflicts (Red !)
-/// 
+///
 /// All operations based on HEAD
-fn files<W: Write>(repo: &git2::Repository, writer: &mut W) -> Result<(), Error> {
+fn files(repo: &git2::Repository) -> Result<(u32, u32, u32, u32, u32), git2::Error> {
     use git2::Status;
     let new_status = Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE;
     let mod_status = Status::WT_MODIFIED | Status::WT_TYPECHANGE | Status::WT_RENAMED;
@@ -80,9 +49,9 @@ fn files<W: Write>(repo: &git2::Repository, writer: &mut W) -> Result<(), Error>
 
     let mut opts = git2::StatusOptions::default();
     let opts = opts.include_untracked(true);
-    let (n_new, n_mod, n_del, n_untr, n_confl) = repo.statuses(Some(opts))?.iter()
-        .map(|s| s.status())
-        .fold((0, 0, 0, 0, 0), |(mut n_new, mut n_mod, mut n_del, mut n_untr, mut n_confl), s| {
+    let statuses = repo.statuses(Some(opts))?.iter().map(|s| s.status()).fold(
+        (0, 0, 0, 0, 0),
+        |(mut n_new, mut n_mod, mut n_del, mut n_untr, mut n_confl), s| {
             match s {
                 _ if s.intersects(new_status) => n_new += 1,
                 _ if s.intersects(mod_status) => n_mod += 1,
@@ -92,25 +61,48 @@ fn files<W: Write>(repo: &git2::Repository, writer: &mut W) -> Result<(), Error>
                 _ => {}
             }
             (n_new, n_mod, n_del, n_untr, n_confl)
-        });
+        },
+    );
+    Ok(statuses)
+}
 
-    if n_new + n_mod + n_del + n_untr == 0 {
-        write!(writer, "{} ", "✓".green().bold())?;
-    } else {
-        if n_new > 0 {
-            write!(writer, "{}{} ", "+".green().bold(), n_new)?;
-        }
-        if n_mod > 0{
-            write!(writer, "{}{} ", "*".yellow().bold(), n_mod)?;
-        }
-        if n_del > 0{
-            write!(writer, "{}{} ", "-".red().bold(), n_del)?;
-        }
-        if n_untr > 0{
-            write!(writer, "{}{} ", "+".cyan().bold(), n_untr)?;
-        }
-        if n_confl > 0{
-            write!(writer, "{}{} ", "!".red().bold(), n_confl)?;
+fn statusline() -> Result<(), io::Error> {
+    if let Ok(repo) = git2::Repository::discover(".") {
+        if !repo.is_bare() {
+            let mut stdout = io::stdout();
+            if let Ok((Some(name), graph_res)) = state(&repo) {
+                write!(
+                    stdout,
+                    "on {} {} ",
+                    "".bright_purple().bold(),
+                    name.white().bold()
+                )?;
+                if let Some((ahead, behind)) = graph_res {
+                    write!(stdout, " ↑{} ↓{}", ahead, behind)?;
+                }
+            }
+
+            if let Ok((n_new, n_mod, n_del, n_untr, n_confl)) = files(&repo) {
+                if n_new + n_mod + n_del + n_untr == 0 {
+                    write!(stdout, "{} ", "✓".green().bold())?;
+                } else {
+                    if n_new > 0 {
+                        write!(stdout, "{}{} ", "+".green().bold(), n_new)?;
+                    }
+                    if n_mod > 0 {
+                        write!(stdout, "{}{} ", "*".yellow().bold(), n_mod)?;
+                    }
+                    if n_del > 0 {
+                        write!(stdout, "{}{} ", "-".red().bold(), n_del)?;
+                    }
+                    if n_untr > 0 {
+                        write!(stdout, "{}{} ", "+".cyan().bold(), n_untr)?;
+                    }
+                    if n_confl > 0 {
+                        write!(stdout, "{}{} ", "!".red().bold(), n_confl)?;
+                    }
+                }
+            }
         }
     }
     Ok(())
