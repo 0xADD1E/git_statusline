@@ -1,10 +1,51 @@
 extern crate colored;
+extern crate failure;
 extern crate git2;
 use colored::*;
+use failure::Error;
+use std::env::var;
 use std::io::{self, Write};
 
-fn main() {
-    statusline().unwrap();
+fn main() -> Result<(), Error> {
+    let repo = git2::Repository::discover(".")?;
+    if !repo.is_bare() {
+        let mut stdout = io::stdout();
+        let (name, graph_res) = state(&repo)?;
+        if let Some(name) = name {
+            write!(
+                stdout,
+                "on {} {} ",
+                "".bright_purple().bold(),
+                name.white().bold()
+            )?;
+        }
+        if let Some((ahead, behind)) = graph_res {
+            write!(stdout, " ↑{} ↓{}", ahead, behind)?;
+        }
+
+        //TODO: If env
+        let (n_new, n_mod, n_del, n_untr, n_confl) = files(&repo)?;
+        if n_new + n_mod + n_del + n_untr == 0 {
+            write!(stdout, "{} ", "✓".green().bold())?;
+        } else {
+            if n_new > 0 {
+                write!(stdout, "{}{} ", "+".green().bold(), n_new)?;
+            }
+            if n_mod > 0 {
+                write!(stdout, "{}{} ", "*".yellow().bold(), n_mod)?;
+            }
+            if n_del > 0 {
+                write!(stdout, "{}{} ", "-".red().bold(), n_del)?;
+            }
+            if n_untr > 0 {
+                write!(stdout, "{}{} ", "+".cyan().bold(), n_untr)?;
+            }
+            if n_confl > 0 {
+                write!(stdout, "{}{} ", "!".red().bold(), n_confl)?;
+            }
+        }
+    }
+    Ok(())
 }
 /// Print state information about a repo
 /// Gives...
@@ -41,7 +82,10 @@ fn state(repo: &git2::Repository) -> Result<(Option<String>, Option<(usize, usiz
 /// All operations based on HEAD
 fn files(repo: &git2::Repository) -> Result<(u32, u32, u32, u32, u32), git2::Error> {
     use git2::Status;
-    let new_status = Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE;
+    let new_status = Status::INDEX_NEW
+        | Status::INDEX_MODIFIED
+        | Status::INDEX_RENAMED
+        | Status::INDEX_TYPECHANGE;
     let mod_status = Status::WT_MODIFIED | Status::WT_TYPECHANGE | Status::WT_RENAMED;
     let del_status = Status::INDEX_DELETED | Status::WT_DELETED;
     let untr_status = Status::WT_NEW;
@@ -64,46 +108,4 @@ fn files(repo: &git2::Repository) -> Result<(u32, u32, u32, u32, u32), git2::Err
         },
     );
     Ok(statuses)
-}
-
-fn statusline() -> Result<(), io::Error> {
-    if let Ok(repo) = git2::Repository::discover(".") {
-        if !repo.is_bare() {
-            let mut stdout = io::stdout();
-            if let Ok((Some(name), graph_res)) = state(&repo) {
-                write!(
-                    stdout,
-                    "on {} {} ",
-                    "".bright_purple().bold(),
-                    name.white().bold()
-                )?;
-                if let Some((ahead, behind)) = graph_res {
-                    write!(stdout, " ↑{} ↓{}", ahead, behind)?;
-                }
-            }
-
-            if let Ok((n_new, n_mod, n_del, n_untr, n_confl)) = files(&repo) {
-                if n_new + n_mod + n_del + n_untr == 0 {
-                    write!(stdout, "{} ", "✓".green().bold())?;
-                } else {
-                    if n_new > 0 {
-                        write!(stdout, "{}{} ", "+".green().bold(), n_new)?;
-                    }
-                    if n_mod > 0 {
-                        write!(stdout, "{}{} ", "*".yellow().bold(), n_mod)?;
-                    }
-                    if n_del > 0 {
-                        write!(stdout, "{}{} ", "-".red().bold(), n_del)?;
-                    }
-                    if n_untr > 0 {
-                        write!(stdout, "{}{} ", "+".cyan().bold(), n_untr)?;
-                    }
-                    if n_confl > 0 {
-                        write!(stdout, "{}{} ", "!".red().bold(), n_confl)?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }
