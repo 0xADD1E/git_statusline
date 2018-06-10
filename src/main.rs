@@ -23,7 +23,11 @@ fn main() -> Result<(), Error> {
             write!(stdout, " ↑{} ↓{}", ahead, behind)?;
         }
 
-        //TODO: If env
+        if let Ok(disable) = var("STATUSLINE_DISABLE") {
+            if !disable.is_empty() {
+                return Ok(());
+            }
+        }
         let (n_new, n_mod, n_del, n_untr, n_confl) = files(&repo)?;
         if n_new + n_mod + n_del + n_untr == 0 {
             write!(stdout, "{} ", "✓".green().bold())?;
